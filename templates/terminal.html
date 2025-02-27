@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>nlpdb</title>
+    <link rel="icon" href="templates/icon.svg" type="image/x-icon">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #1e1e1e;
+            font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+            color: #fff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .terminal {
+            background: rgba(47, 49, 54, 0.85);
+            border-radius: 12px;
+            box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+            width: 80vw;
+            height: 80vh;
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .terminal-body {
+            padding: 20px;
+            flex-grow: 1;
+            overflow: auto;
+            font-size: 14px;
+            line-height: 1.6;
+            cursor: text;
+            background: rgba(32, 34, 37, 0.7);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            font-variant-ligatures: none;
+        }
+
+        .prompt {
+            display: flex;
+            margin-bottom: 10px;
+            align-items: flex-start;
+        }
+
+        .prompt-symbol {
+            color: #64ffb4;
+            margin-right: 10px;
+            user-select: none;
+        }
+
+        .command-input {
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-family: inherit;
+            font-size: inherit;
+            width: 100%;
+            outline: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .output {
+            color: #e0e0e0;
+            margin: 10px 0 20px;
+            white-space: pre;
+            font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+            overflow-x: auto;
+            line-height: 1.2;
+            tab-size: 4;
+            -moz-tab-size: 4;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .terminal-body::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .terminal-body::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 4px;
+        }
+
+        .terminal-body::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 4px;
+        }
+
+        .terminal-body::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.25);
+        }
+
+        @media (max-width: 600px) {
+            .terminal {
+                width: 95vw;
+                height: 90vh;
+            }
+
+            .terminal-body {
+                padding: 15px;
+                font-size: 13px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <input type="file" id="csvFileInput" class="file-input" accept=".csv">
+    <div class="terminal">
+        <div class="terminal-body" id="terminal-body">
+            <div class="output">╔═════════════════════════╗
+║     𝐍 𝐋 𝐏 𝐃 𝐁       v1.0
+╚═════════════════════════╝
+
+Enter your query or 'help' for commands and info</div>
+            <div class="prompt">
+                <span class="prompt-symbol">>&nbsp;</span>
+                <input type="text" class="command-input" id="command-input" autofocus>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const terminalBody = document.getElementById('terminal-body');
+        const fileInput = document.getElementById('csvFileInput');
+        let fileDialogActive = false;
+
+        terminalBody.addEventListener('click', function(e) {
+            const activeInput = terminalBody.querySelector('.prompt:last-child .command-input');
+            if (activeInput) {
+                activeInput.focus();
+            }
+        });
+
+        window.addEventListener('resize', function() {
+            terminalBody.scrollTop = terminalBody.scrollHeight;
+        });
+
+        // Add event listener for when the file dialog is cancelled
+        window.addEventListener('focus', function() {
+            if (fileDialogActive) {
+                setTimeout(() => {
+                    if (!fileInput.value && fileDialogActive) {
+                        fileDialogActive = false;
+                        addNewPrompt();
+                    }
+                }, 300);
+            }
+        });
+
+        function addNewPrompt() {
+            const newPrompt = document.createElement('div');
+            newPrompt.className = 'prompt';
+            newPrompt.innerHTML = `
+                <span class="prompt-symbol">>&nbsp;</span>
+                <input type="text" class="command-input">
+            `;
+            terminalBody.appendChild(newPrompt);
+            const newInput = newPrompt.querySelector('input');
+            initializeInput(newInput);
+            newInput.focus();
+            terminalBody.scrollTop = terminalBody.scrollHeight;
+        }
+
+        async function executeCommand(command) {
+            try {
+                const response = await fetch('/execute', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ command })
+                });
+
+                const data = await response.json();
+
+                if (data.output === 'OPEN_FILE_DIALOG_NO_PROMPT') {
+                    fileDialogActive = true;
+                    fileInput.click();
+
+                    const loadingElement = document.createElement('div');
+                    loadingElement.className = 'output';
+                    loadingElement.textContent = 'Opening file navigation, only CSV format is supported.';
+                    terminalBody.appendChild(loadingElement);
+                    return null;
+                }
+
+                if (data.output === 'CLEAR_SCREEN') {
+                    while (terminalBody.firstChild) {
+                        terminalBody.removeChild(terminalBody.firstChild);
+                    }
+                    const welcomeMsg = document.createElement('div');
+                    welcomeMsg.className = 'output';
+                    welcomeMsg.innerHTML = `╔═════════════════════════╗
+║     𝐍 𝐋 𝐏 𝐃 𝐁       v1.0
+╚═════════════════════════╝
+
+Enter your query or 'help' for commands and info`;
+                    terminalBody.appendChild(welcomeMsg);
+                    addNewPrompt();
+                    return null;
+                }
+
+                return data.output;
+            } catch (error) {
+                return `Error: ${error.message}`;
+            }
+        }
+
+        async function handleFileSelect(event) {
+            fileDialogActive = false;
+            const file = event.target.files[0];
+            if (!file) {
+                addNewPrompt();
+                return;
+            }
+
+            const inputs = document.querySelectorAll('.command-input');
+            inputs.forEach(input => input.disabled = true);
+
+            const loadingElement = document.createElement('div');
+            loadingElement.className = 'output';
+            loadingElement.textContent = 'Importing CSV, please wait...';
+            terminalBody.appendChild(loadingElement);
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/upload_csv', {
+                    method: 'POST',
+                    body: formData,
+                    signal: AbortSignal.timeout(300000)
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Upload failed');
+                }
+
+                loadingElement.textContent = data.output || data.error;
+                addNewPrompt();
+                inputs.forEach(input => input.disabled = false);
+                event.target.value = '';
+
+            } catch (error) {
+                console.error('Error uploading file:', error);
+                loadingElement.textContent = 'Error uploading file: ' + error.message;
+                inputs.forEach(input => input.disabled = false);
+                addNewPrompt();
+            }
+        }
+
+        async function processCommand(command) {
+            const currentPrompt = document.createElement('div');
+            currentPrompt.className = 'prompt';
+            currentPrompt.innerHTML = `
+                <span class="prompt-symbol">>&nbsp;</span>
+                <input type="text" class="command-input" readonly>
+            `;
+
+            const readOnlyInput = currentPrompt.querySelector('input');
+            readOnlyInput.value = command;
+
+            const activePrompt = terminalBody.querySelector('.prompt:last-child');
+            activePrompt.replaceWith(currentPrompt);
+
+            if (command.trim()) {
+                const output = await executeCommand(command);
+                if (output === null) {
+                    return;
+                }
+                if (output) {
+                    const outputElement = document.createElement('div');
+                    outputElement.className = 'output';
+                    outputElement.textContent = output;
+                    terminalBody.appendChild(outputElement);
+                }
+            }
+
+            if (command.trim().toLowerCase() !== 'import') {
+                addNewPrompt();
+            }
+        }
+
+        function initializeInput(input) {
+            input.addEventListener('keydown', async function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const command = this.value;
+                    await processCommand(command);
+                }
+            });
+        }
+
+        fileInput.addEventListener('change', handleFileSelect);
+        initializeInput(document.querySelector('.command-input'));
+    </script>
+</body>
+</html>
