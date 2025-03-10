@@ -12,24 +12,19 @@ from pathlib import Path
 import mysql.connector
 import pandas as pd
 from dotenv import load_dotenv
-from flask import Flask, Response, jsonify, redirect, render_template, request, session
+from flask import (
+    Flask,
+    Response,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    session,
+)
 from openai import OpenAI
 from rich import box
 from rich.console import Console
 from rich.table import Table
-
-
-class ValidationError(Exception):
-    """Custom validation error class."""
-
-    def __init__(
-        self, field: str, message: str = "A validation error occurred"
-    ) -> None:
-        """Handle message."""
-        self.field = field
-        self.message = message
-        super().__init__(f"{message}: {field}")
-
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -44,6 +39,18 @@ admin_username = getenv("ADMIN_USERNAME")
 admin_password = getenv("ADMIN_PASSWORD")
 
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
+
+
+class ValidationError(Exception):
+    """Custom validation error class."""
+
+    def __init__(
+        self, field: str, message: str = "A validation error occurred"
+    ) -> None:
+        """Handle message."""
+        self.field = field
+        self.message = message
+        super().__init__(f"{message}: {field}")
 
 
 class ChatGPT:
@@ -87,6 +94,14 @@ class MySQLDB:
         self.database = getenv("MYSQL_DATABASE")
         self.connection = None
 
+    def _validate_table_name(self, table_name: str) -> None:
+        """Validate table name contains only allowed characters."""
+        if not table_name.isalnum() and not all(
+            c.isalnum() or c == "_" for c in table_name
+        ):
+            err = "Table name must be only alphanumeric characters or underscores"
+            raise ValidationError(err)
+
     def connect(self) -> None:
         """Establish database connection."""
         self.connection = mysql.connector.connect(
@@ -128,14 +143,6 @@ class MySQLDB:
         finally:
             if cursor:
                 cursor.close()
-
-    def _validate_table_name(self, table_name: str) -> None:
-        """Validate table name contains only allowed characters."""
-        if not table_name.isalnum() and not all(
-            c.isalnum() or c == "_" for c in table_name
-        ):
-            err = "Table name must be only alphanumeric characters or underscores"
-            raise ValidationError(err)
 
     def import_dataframe(self, df: pd.DataFrame, table_name: str) -> None:
         """Import a pandas DataFrame into a MySQL table."""
@@ -225,6 +232,24 @@ class CommandProcessor:
             "clear": lambda _: "CLEAR_SCREEN",
         }
 
+    def _get_sql_query(self, command: str) -> str:
+        """Get SQL query from ChatGPT."""
+        command = command.replace("= '", "='").replace("='", "= '").replace("'", "'")
+        query_filters = [
+            "return only a MySQL query",
+            "do not include any backticks",
+            "do not include any markdown",
+            "do not include any explanation",
+            "only return the raw SQL query",
+        ]
+        prompt = " ".join(["Write me a MySQL query to ", command, *query_filters])
+
+        sql_query = self.chatgpt.query(prompt).strip()
+        for prefix in ["```sql", "```"]:
+            if sql_query.startswith(prefix):
+                sql_query = sql_query.removeprefix(prefix)
+        return sql_query.removesuffix("```").strip()
+
     def _format_results(self, result: pd.DataFrame) -> str:
         """Format SQL results into a rich table output."""
         if not isinstance(result, pd.DataFrame) or result.empty:
@@ -268,9 +293,7 @@ class CommandProcessor:
         console.print(table)
         output = console.file.getvalue()
 
-        output = re.sub(r"\x1b\[[0-9;]*[mGKH]", "", output)
-
-        return output
+        return re.sub(r"\x1b\[[0-9;]*[mGKH]", "", output)
 
     def process_command(self, command: str) -> str:
         """Process commandline."""
@@ -294,24 +317,6 @@ class CommandProcessor:
             return query_message + formatted_result
         except Exception as e:
             return f"SQL Error: {e}"
-
-    def _get_sql_query(self, command: str) -> str:
-        """Get SQL query from ChatGPT."""
-        command = command.replace("= '", "='").replace("='", "= '").replace("'", "'")
-        query_filters = [
-            "return only a MySQL query",
-            "do not include any backticks",
-            "do not include any markdown",
-            "do not include any explanation",
-            "only return the raw SQL query",
-        ]
-        prompt = " ".join(["Write me a MySQL query to ", command, *query_filters])
-
-        sql_query = self.chatgpt.query(prompt).strip()
-        for prefix in ["```sql", "```"]:
-            if sql_query.startswith(prefix):
-                sql_query = sql_query.removeprefix(prefix)
-        return sql_query.removesuffix("```").strip()
 
     def process_csv(self, file_content: bytes, filename: str) -> str:
         """Process uploaded CSV file and import to database.

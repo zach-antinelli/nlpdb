@@ -58,4 +58,4 @@ Any text that is not a command is passed to the LLM to be converted into a SQL q
 | Import CSV | `import` | Import a CSV file into a table in the database matching file name |
 | List databases | `show databases`, `get dbs`, `list dbs` | Show available databases |
 | List tables | `show tables`, `get tables`, `list tables` | Show available tables |
-| Get 50 rows from a table | `get 50 rows from ama_modifiers` | List x rows from a table |
+| Get x rows from a table | `get 5 rows from table test` | List x rows from a table |
